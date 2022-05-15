@@ -21,8 +21,8 @@ class Conf_Organizer:
         self.get_partners(url)
         self.run_analysis()
         self.compile_results()
-        # self.post_results()
-        self.print_country_analysis()
+        self.post_results(url)
+        # self.print_country_analysis()
         
     def get_partners(self,url):
         data = self.get_data(url)
@@ -45,7 +45,8 @@ class Conf_Organizer:
         
     def run_analysis(self):
         for country in vars(self):
-            getattr(self, country).find_best_date()
+            getattr(self, country).find_start_date()
+            getattr(self, country).find_attendees()
         
     def compile_results(self):
         results = []
@@ -59,31 +60,32 @@ class Conf_Organizer:
             })
         return results
     
-    def post_results(self):
+    def post_results(self,url):
         url = ''
         data = self.compile_results()
         self.display_results()
-        # x = r.post(url, data=data)
+        x = r.post(url, data=data)
+        
      
     def display_results(self):
         partners = self.compile_results()
         for partner in partners:
-            print(f'{partner["name"]}')
-            print(f'{partner["attendeeCount"]}')
-            print(f'{partner["startDate"]}')
-            print(f'{partner["attendees"]}')
+            print(f'"name": {partner["name"]}')
+            print(f'"attendeeCount": {partner["attendeeCount"]}')
+            print(f'"startDate": {partner["startDate"]}')
+            print(f'"attendees": {partner["attendees"]}')
             print('\n')
             
     def print_country_analysis(self):
         for country_name in vars(self):
             country = getattr(self, country_name)
-            country.print_dates()
+            country.print_partner_summary()
 
 class Country:
     def __init__(self, name) -> None:
         self.name = name
         self.emails = []
-        self.members = []
+        self.members = set()
         self.available_dates = OrderedDict()
         self.min_date = '2019-01-01'
         self.max_date = '2016-01-01'
@@ -94,9 +96,8 @@ class Country:
         self.attending_members = []
         self.non_attending_members = []
         
-        
     def add_member(self, member):
-        self.members.append(member)
+        self.members.add(member)
         self.emails.append(member.email)
         self.add_dates_to_available_dates(member.available_dates,member)
         
@@ -142,48 +143,48 @@ class Country:
                 self.date_map[f'2017-{month}-{day}'] = 0 
     
     def create_date_map_counts(self):
-        # return array of tuples (date, count_of_members_available)
-        for map_date in self.date_map:
-            if self.available_dates.get(map_date) is None:
-                self.date_count_available.append((map_date,0))
-            else:
-                self.date_count_available.append((map_date, len(self.available_dates[map_date])))
+        self.date_count_available = [
+            (map_date, len(self.available_dates[map_date]) )
+            if map_date in self.available_dates 
+            else (map_date,0) for map_date 
+            in self.date_map]
     
-    def find_best_date(self):
+    def find_start_date(self):
         self.create_date_map()
         self.create_date_map_counts()
-        best_date = ''
         best_count = 0
         for i in range(len(self.date_count_available)-1):
-            if self.date_count_available[i][1] + self.date_count_available[i+1][1] > best_count:
-                best_count = self.date_count_available[i][1] + self.date_count_available[i+1][1]
-                best_date = self.date_count_available[i][0]
-                second_day = self.date_count_available[i+1][0]
-                
-        # Also check if best date includes all members (count == 2x number of members)
-        self.best_day = best_date
-        if best_count == 2*len(self.members):
-            self.attending_members = [email for email in self.members.email]
-        else:
-            self.find_attending_members(best_date,second_day)
+            attendance_this_date = self.date_count_available[i][1]
+            attendance_next_day = self.date_count_available[i+1][1]
+            attendance_today_and_tomorrow = attendance_this_date + attendance_next_day
+            
+            if attendance_today_and_tomorrow > best_count:
+                best_count = attendance_today_and_tomorrow
+                self.best_day = self.date_count_available[i][0]
+                self.second_day = self.date_count_available[i+1][0]
+
+    def find_attendees(self):
+        if self.best_day == 2*len(self.members):
+            self.find_attendees(self.best_day,self.second_day)
+        else:            
+            for member in self.members:
+                if self.best_day in member.available_dates and self.second_day in member.available_dates:
+                    self.attending_members.append(member.email)
+                else:
+                    self.non_attending_members.append(member.email)
     
-    def find_attending_members(self, first_day, second_day):
-        for member in self.members:
-            if first_day in member.available_dates and second_day in member.available_dates:
-                self.attending_members.append(member.email)
-            else:
-                self.non_attending_members.append(member.email)
-    
-    def print_dates(self):
+    def print_partner_summary(self):
         print(f'\n\n{self.name}'.upper())
         print('Best day:',self.best_day)
         print('Total Members:',len(self.members))
         print('Available per date:')
         for i,x in enumerate(list(self.available_dates.items())):
+            date = x[0]
+            count = x[1]
             if i % 4 < 3:
-                print (f'{x[0]}: {len(x[1])}', end="    ")
+                print (f'{date}: {len(count)}', end="    ")
             else:
-                print (f'{x[0]}: {len(x[1])}')
+                print (f'{date}: {len(count)}')
         print(f'\nAttending Members: ({len(self.attending_members)})')
         for m in self.attending_members:
             print(m, end=' ')
@@ -194,6 +195,5 @@ class Country:
 def run():
     taco_conference = Conf_Organizer()
     taco_conference.run('https://ct-mock-tech-assessment.herokuapp.com/')
-
 
 run()
